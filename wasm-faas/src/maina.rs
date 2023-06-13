@@ -3,14 +3,13 @@ use std::sync::RwLock;
 use once_cell::sync::Lazy;
 use wasmtime::*;
 use wasmtime_wasi::sync::WasiCtxBuilder;
-use wasmtime_wasi::WasiCtx;
 
 // Initialize the engine.
 static ENGINE: Lazy<Engine> = Lazy::new(|| Engine::default());
 
 // Define a struct for holding tenant data.
-struct TenantData<'a> {
-    store: &'a mut Store<WasiCtx>,
+struct TenantData {
+    store: Store<()>,
     modules: HashMap<String, Module>,
 }
 
@@ -24,18 +23,11 @@ static TENANT_DATA: Lazy<RwLock<HashMap<String, TenantData>>> = Lazy::new(|| RwL
 fn get_module(tenant_id: &str, module_name: &str) -> Result<Module, Box<dyn std::error::Error>> {
     // Lock the TENANT_DATA for writing.
     let mut tenant_data_map = TENANT_DATA.write().unwrap();
-    let wasi = WasiCtxBuilder::new()
-        .inherit_stdio()
-        .inherit_args()?
-        .build();
- 
-    // Get the TenantData for the tenant, or insert a new one if it doesn't exist.
-    let tenant_data = tenant_data_map.entry(tenant_id.to_string()).or_insert_with(|| {
-        let mut store_ = Store::new(&*ENGINE, wasi);
 
-        TenantData {
-            store: &mut store_, modules: HashMap::new()
-        }
+    // Get the TenantData for the tenant, or insert a new one if it doesn't exist.
+    let tenant_data = tenant_data_map.entry(tenant_id.to_string()).or_insert_with(|| TenantData {
+        store: Store::new(&*ENGINE, ()),
+        modules: HashMap::new(),
     });
 
     // Get the Module from the tenant's cache, or insert a new one if it doesn't exist.
@@ -61,36 +53,11 @@ fn call_module_function(tenant_id: &str, module_name: &str, function_name: &str,
     
     // Get a reference to the Store for the tenant.
     let tenant_data = tenant_data_map.get(tenant_id).unwrap();
-    let mut store = tenant_data.store;
+    let store = &tenant_data.store;
     
     // Set up a new Linker with a WasiCtx.
-    //let wasi_ctx = WasiCtxBuilder::new().inherit_stdio().build();
-
-    //et engine = Engine::default();
+    let wasi_ctx = WasiCtxBuilder::new().inherit_stdio().build();
     let mut linker = Linker::new(&*ENGINE);
-    wasmtime_wasi::add_to_linker(&mut linker, |s| s)?;
-
-    // Create a WASI context and put it in a Store; all instances in the store
-    // share this context. `WasiCtxBuilder` provides a number of ways to
-    // configure what the target program will have access to.
-    //let wasi = WasiCtxBuilder::new()
-    //    .inherit_stdio()
-    //    .inherit_args()?
-    //    .build();
-    //let mut store = Store::new(&*ENGINE, wasi);
-
-    // Instantiate our module with the imports we've created, and run it.
-    //let module = Module::from_file(&engine, "target/wasm32-wasi/debug/wasi.wasm")?;
-    linker.module(&mut store, "", &module)?;
-    linker
-        .get_default(&mut store, "")?
-        .typed::<(), (), _>(&store)?
-        .call(&mut store, ())?;
-    //let instance = linker.instantiate(&mut store, &module)?; 
-    //let instance_main = instance.get_typed_func::<(), (), _>(&mut store, "_start")?;
-    //instance_main.call(&mut store, ())?;
-
-    //let mut linker = Linker::new(&*ENGINE);
     //wasmtime_wasi::add_to_linker(&mut linker, |s| s)?;
      
     
